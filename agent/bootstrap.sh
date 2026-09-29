@@ -31,7 +31,7 @@ sha_of() { # $1=os-arch -> sha256 pinneado (go.dev/dl/?mode=json, 2026-09-29)
 go_minor() { # imprime minor de `go version` o "none"
   if ! command -v go >/dev/null 2>&1; then echo "none"; return; fi
   ver="$(go version 2>/dev/null | awk '{print $3}')" || { echo "none"; return; }
-  echo "$ver" | sed -E 's/^go1\.([0-9]+).*/\1/;t;d' | grep -E '^[0-9]+$' || echo "none"
+  echo "$ver" | sed -E -n 's/^go1\.([0-9]+).*/\1/p' | grep -E '^[0-9]+$' || echo "none"
 }
 
 ensure_go() {
@@ -87,7 +87,7 @@ fi
 ensure_go
 mkdir -p "$BIN_DIR" "$RUN_DIR"
 echo "compilando $VERSION ..."
-(cd "$ROOT" && CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=$VERSION" -o "$BIN" ./cmd/pizarron)
+(cd "$ROOT" && CGO_ENABLED=0 go build -buildvcs=false -ldflags "-s -w -X main.Version=$VERSION" -o "$BIN" ./cmd/pizarron)
 
 PORT="$(pick_port)"
 case "$PORT" in *:* ) ADDR="$PORT";; *) ADDR="127.0.0.1:$PORT";; esac
