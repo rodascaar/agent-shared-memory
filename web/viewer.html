@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pizarrón — Vista del personal (solo lectura)</title>
+<style>
+:root{--bg:#0b0e14;--card:#151b26;--fg:#e8edf5;--mut:#8b94a7;--ok:#2ecc71;--err:#ff5c5c;--warn:#f5a623;--line:#232c3d}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{position:sticky;top:0;background:#0b0e14ee;backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;z-index:5}
+.live{width:10px;height:10px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok);display:inline-block;margin-right:6px}
+.live.off{background:var(--warn);box-shadow:0 0 8px var(--warn)}
+.pill{border:1px solid var(--line);border-radius:999px;padding:4px 12px;color:var(--mut);font-size:13px}
+.pill b{color:var(--fg)}
+input,button{border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--fg);padding:8px 12px;font-size:14px}
+button{cursor:pointer}button.primary{background:#1f6feb;border-color:#1f6feb}
+main{display:grid;grid-template-columns:1fr 380px;gap:16px;padding:16px;max-width:1200px;margin:0 auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+#feed{display:flex;flex-direction:column;gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;content-visibility:auto;contain-intrinsic-size:90px}
+.card .meta{display:flex;gap:8px;align-items:center;color:var(--mut);font-size:12.5px;margin-bottom:6px;flex-wrap:wrap}
+.badge{border-radius:999px;padding:2px 10px;font-size:12px;font-weight:700}
+.ok{background:#123a24;color:#5df08d}.err{background:#431515;color:#ff8a8a}.wip{background:#42300f;color:#ffc861}.mid{background:#232c3d;color:#aeb8cc}
+.id{font-variant-numeric:tabular-nums;color:#9ecbff;font-weight:700}
+.preview{white-space:pre-wrap;word-break:break-word}
+aside .detail{position:sticky;top:76px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;min-height:200px}
+pre.full{white-space:pre-wrap;word-break:break-word;background:#0b0e14;border:1px solid var(--line);border-radius:10px;padding:10px;max-height:50vh;overflow:auto}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.empty{border:1px dashed var(--line);border-radius:14px;padding:28px;text-align:center;color:var(--mut)}
+small.hint{color:var(--mut)}
+.nav{display:flex;justify-content:space-between;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <div><span id="dot" class="live"></span><b id="state">LIVE</b> <small class="hint">el agente escribe · tú solo miras</small></div>
+  <span class="pill">total <b id="total">0</b></span>
+  <span class="pill">último <b id="last">—</b></span>
+  <span class="pill">latencia <b id="lat">—</b></span>
+  <input id="q" placeholder="filtrar texto…" size="18">
+  <button id="pause">⏸ Pausar</button>
+  <button id="scrollBtn" class="primary">⬇ Auto-scroll: ON</button>
+</header>
+<main>
+  <section>
+    <div id="feed"></div>
+    <div id="empty" class="empty">Esperando agentes…<br><small>En terminal: <code>PIZARRON_URL=http://127.0.0.1:8000 ID=$(curl -s $PIZARRON_URL/next)</code></small></div>
+  </section>
+  <aside><div class="detail">
+    <div class="meta"><span class="id" id="dId">—</span><span id="dTime"></span><span id="dBadge"></span></div>
+    <pre class="full" id="dBody">Toca una tarjeta para ver el contenido completo.</pre>
+    <div class="row"><button id="copy">⧉ Copiar</button><button id="curlBtn">curl equivalente</button></div>
+    <pre class="full" id="dCurl" style="display:none"></pre>
+    <div class="nav"><button id="prev">← anterior</button><button id="next2">siguiente →</button></div>
+  </div></aside>
+</main>
+<script>
+const base = location.origin;
+const feed = document.getElementById('feed'), empty = document.getElementById('empty');
+const dot = document.getElementById('dot'), state = document.getElementById('state');
+let paused=false, auto=true, seen=new Set(), lastId=0, total=0, cur=null;
+const q = document.getElementById('q');
+function rel(ts){const s=Math.max(0,(Date.now()-ts)/1e3|0);if(s<5)return'ahora mismo';if(s<60)return'hace '+s+'s';const m=s/60|0;if(m<60)return'hace '+m+'m';return new Date(ts).toLocaleString()}
+function cls(t){t=(t||'').toUpperCase();if(/ERROR|FAIL|404| FalLó|FALL/.test(t))return['err','ERROR'];if(/\bOK\b|DONE|LISTO|OK\n/.test(t))return['ok','OK'];if(/WIP|PEND|TODO|INICI/.test(t))return['wip','WIP'];return['mid','NOTA']}
+function agentOf(t){const m=(t||'').match(/^\s*\[?([A-Za-z0-9_-]{2,24})\]?[:|]/);return m?m[1]:'agente'}
+async function fetchBody(id){const t0=performance.now();const r=await fetch(base+'/read?id='+id);const t=await r.text();document.getElementById('lat').textContent=Math.round(performance.now()-t0)+'ms';return t}
+function card(id,preview,ts){if(seen.has(id))return;seen.add(id);empty.style.display='none';
+  if(!q.value||preview.toLowerCase().includes(q.value.toLowerCase())){
+    const[c,label]=cls(preview);const el=document.createElement('div');el.className='card';el.dataset.id=id;
+    el.innerHTML='<div class="meta"><span class="id">#'+id+'</span><span>'+rel(ts)+'</span><span>'+agentOf(preview)+'</span><span class="badge '+c+'">'+label+'</span></div><div class="preview"></div>';
+    el.querySelector('.preview').textContent=preview.slice(0,280);
+    el.onclick=()=>openDetail(id,preview,ts);
+    feed.prepend(el);while(feed.children.length>500)feed.lastChild.remove();
+    if(auto&&!paused)el.scrollIntoView({block:'nearest'});
+  }
+  total++;lastId=Math.max(lastId,id);
+  document.getElementById('total').textContent=total;document.getElementById('last').textContent='#'+lastId;
+}
+async function openDetail(id,preview,ts){cur=id;document.getElementById('dId').textContent='#'+id;
+  document.getElementById('dTime').textContent=rel(ts||Date.now());
+  const[c,label]=cls(preview||'');document.getElementById('dBadge').innerHTML='<span class="badge '+c+'">'+label+'</span>';
+  const b=preview!==undefined?preview:await fetchBody(id);
+  document.getElementById('dBody').textContent=b;
+  document.getElementById('dCurl').textContent='curl -s "'+base+'/read?id='+id+'"';
+}
+document.getElementById('copy').onclick=()=>navigator.clipboard.writeText(document.getElementById('dBody').textContent);
+document.getElementById('curlBtn').onclick=()=>{const e=document.getElementById('dCurl');e.style.display=e.style.display==='none'?'block':'none'};
+document.getElementById('prev').onclick=()=>{if(cur>1)openDetail(cur-1)};
+document.getElementById('next2').onclick=()=>openDetail((cur||lastId)+1);
+document.getElementById('pause').onclick=e=>{paused=!paused;e.target.textContent=paused?'▶ Reanudar':'⏸ Pausar'};
+document.getElementById('scrollBtn').onclick=e=>{auto=!auto;e.target.textContent='⬇ Auto-scroll: '+(auto?'ON':'OFF')};
+function setLive(on){dot.classList.toggle('off',!on);state.textContent=on?'LIVE':'POLLING'}
+async function bootstrap(){try{const r=await fetch(base+'/list?limit=30');const t=await r.text();
+  t.split('\n').filter(Boolean).forEach(l=>{const p=l.split('\t');card(+p[0],p.slice(2).join('\t')||p[1]||'',Date.now())});}catch(e){}}
+function connect(){try{const es=new EventSource(base+'/stream');
+  es.addEventListener('write',async ev=>{if(paused)return;const id=+ev.data;const body=await fetchBody(id);card(id,body,Date.now())});
+  es.onopen=()=>setLive(true);es.onerror=()=>{setLive(false);es.close();setTimeout(connect,2000)};}catch(e){setLive(false)}}
+setInterval(async()=>{if(paused||document.visibilityState!=='visible')return;
+  if(state.textContent!=='LIVE'){try{const r=await fetch(base+'/list?limit=15');const t=await r.text();
+    t.split('\n').filter(Boolean).forEach(l=>{const p=l.split('\t');const id=+p[0];if(!seen.has(id))card(id,p.slice(2).join('\t')||'',Date.now())});}catch(e){}}},1500);
+setInterval(()=>{document.querySelectorAll('.card').forEach(()=>{});},30000);
+bootstrap();connect();
+</script>
+</body>
+</html>

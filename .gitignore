@@ -1,0 +1,18 @@
+# Binario compilado en raíz (anclado: NO casa con cmd/pizarron/ ni internal/pizarron/)
+/pizarron
+/pizarron.exe
+# Artefactos de release
+/dist/
+
+# Ciclo de vida agéntico (bootstrap): binario local, toolchain, estado
+/.bin/
+/.tools/
+/.run/
+
+# Datos en caliente del pizarrón (local, reconstruible)
+/pizarron.log
+*.log
+
+# Go
+/bin/
+/pkg/
